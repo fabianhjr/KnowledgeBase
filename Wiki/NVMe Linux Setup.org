@@ -1,0 +1,67 @@
+#+TITLE: NVME Linux Setup
+* Sector Size
+- Consumer NVMe support 512 and 4096 physical sector sizes
+- Enterprise NVMe might suppor larger physical sector sizes
+
+For compatibility, most NVMe come configured with 512 physical sector sizes but 4096 have better performance. (Can negatively affect lifespan under the circunstance of writing a lot of data smaller than 4kb)
+
+** Check Device Support
+#+BEGIN_SRC
+> nvme id-ns -H /dev/nvmeXnY | grep "LBA Format"
+LBA Format  0 : Metadata Size: 0   bytes - Data Size: 512 bytes - Relative Performance: 0x2 Good (in use)
+LBA Format  1 : Metadata Size: 0   bytes - Data Size: 4096 bytes - Relative Performance: 0x1 Better
+#+END_SRC
+
+** Change
+WARNING: This is a destructive operation that will wipe all data on the target device
+
+#+BEGIN_SRC
+> nvme format --lbaf=N /dev/nvmeXnY
+[will give you a chance to ctrl+c]
+#+END_SRC
+
+Re-checking should show the chosen LBA Format in use.
+
+** lsblk
+Second check
+
+#+BEGIN_SRC
+> lsblk -td
+NAME    ALIGNMENT MIN-IO OPT-IO PHY-SEC LOG-SEC ROTA SCHED       RQ-SIZE  RA WSAME
+nvme0n1         0   4096      0    4096    4096    0 none           1023 128    0B
+#+END_SRC
+
+* LUKS Tweaks
+There are some LUKS defaults that one might have strong reasons to change
+
+** Discards / trim
+LUKS doesn't allow trims / discards by default; This can negatively impact both performance and lifespan.
+Please check with your distro documentation as to how to enable trims.
+
+NOTICE: triming will leak the amount of usage (and which blocks from the device are in use)
+
+*** Check trim
+#+BEGIN_SRC
+sudo fstrim -v [mount location]
+[mount location]: x TiB (y bytes) trimmed
+#+END_SRC
+
+** LUKS Performance
+Don't use work queues, sync has better performance.
+
+no_read_workqueue / no_write_workqueue
+
+https://blog.cloudflare.com/speeding-up-linux-disk-encryption/
+
+** NixOS configuration
+From the above
+
+#+BEGIN_SRC
+luks.devices = {
+  "luks-id" = {
+    device = "/dev/disk/by-uuid/id";
+    allowDiscards = true;
+    bypassWorkqueues = true;
+  };
+};
+#+END_SRC
